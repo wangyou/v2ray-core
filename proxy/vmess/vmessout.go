@@ -19,10 +19,6 @@ import (
 	"github.com/v2ray/v2ray-core/transport/ray"
 )
 
-const (
-	InfoTimeNotSync = "Please check the User ID in your vmess configuration, and make sure the time on your local and remote server are in sync."
-)
-
 type VMessOutboundHandler struct {
 	vNextList    []*config.OutboundTarget
 	vNextListUDP []*config.OutboundTarget
@@ -76,11 +72,12 @@ func (handler *VMessOutboundHandler) Dispatch(firstPacket v2net.Packet, ray ray.
 		Address: firstPacket.Destination().Address(),
 	}
 
-	buffer := make([]byte, 36) // 16 + 16 + 4
-	rand.Read(buffer)
-	request.RequestIV = buffer[:16]
-	request.RequestKey = buffer[16:32]
-	request.ResponseHeader = buffer[32:]
+	buffer := alloc.NewSmallBuffer()
+	defer buffer.Release()
+	v2net.ReadAllBytes(rand.Reader, buffer.Value[:36]) // 16 + 16 + 4
+	request.RequestIV = buffer.Value[:16]
+	request.RequestKey = buffer.Value[16:32]
+	request.ResponseHeader = buffer.Value[32:36]
 
 	return startCommunicate(request, vNextAddress, ray, firstPacket)
 }
@@ -124,7 +121,7 @@ func handleRequest(conn net.Conn, request *protocol.VMessRequest, firstPacket v2
 	}
 
 	buffer := alloc.NewBuffer().Clear()
-	requestBytes, err := request.ToBytes(user.NewTimeHash(user.HMACHash{}), user.GenerateRandomInt64InRange, buffer.Value)
+	buffer, err = request.ToBytes(user.NewTimeHash(user.HMACHash{}), user.GenerateRandomInt64InRange, buffer)
 	if err != nil {
 		log.Error("VMessOut: Failed to serialize VMess request: %v", err)
 		return
@@ -140,10 +137,10 @@ func handleRequest(conn net.Conn, request *protocol.VMessRequest, firstPacket v2
 
 	if firstChunk != nil {
 		encryptRequestWriter.Crypt(firstChunk.Value)
-		requestBytes = append(requestBytes, firstChunk.Value...)
+		buffer.Append(firstChunk.Value)
 		firstChunk.Release()
 
-		_, err = conn.Write(requestBytes)
+		_, err = conn.Write(buffer.Value)
 		buffer.Release()
 		if err != nil {
 			log.Error("VMessOut: Failed to write VMess request: %v", err)
