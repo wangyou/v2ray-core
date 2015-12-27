@@ -2,29 +2,35 @@ package socks
 
 import (
 	"bytes"
+	"fmt"
 	"io/ioutil"
 	"net"
 	"testing"
 
 	"golang.org/x/net/proxy"
 
-	"github.com/v2ray/v2ray-core/app/point"
-	v2proxy "github.com/v2ray/v2ray-core/proxy"
-	"github.com/v2ray/v2ray-core/proxy/socks/config/json"
-	"github.com/v2ray/v2ray-core/testing/mocks"
-	"github.com/v2ray/v2ray-core/testing/unit"
+	v2nettesting "github.com/v2ray/v2ray-core/common/net/testing"
+	"github.com/v2ray/v2ray-core/proxy/common/connhandler"
+	"github.com/v2ray/v2ray-core/proxy/socks/json"
+	proxymocks "github.com/v2ray/v2ray-core/proxy/testing/mocks"
+	"github.com/v2ray/v2ray-core/shell/point"
+	"github.com/v2ray/v2ray-core/shell/point/testing/mocks"
+	v2testing "github.com/v2ray/v2ray-core/testing"
+	"github.com/v2ray/v2ray-core/testing/assert"
 )
 
 func TestSocksTcpConnect(t *testing.T) {
-	assert := unit.Assert(t)
-	port := uint16(12385)
+	v2testing.Current(t)
+	port := v2nettesting.PickPort()
 
-	och := &mocks.OutboundConnectionHandler{
-		Data2Send:   bytes.NewBuffer(make([]byte, 0, 1024)),
-		Data2Return: []byte("The data to be returned to socks server."),
+	connInput := []byte("The data to be returned to socks server.")
+	connOutput := bytes.NewBuffer(make([]byte, 0, 1024))
+	och := &proxymocks.OutboundConnectionHandler{
+		ConnOutput: connOutput,
+		ConnInput:  bytes.NewReader(connInput),
 	}
 
-	v2proxy.RegisterOutboundConnectionHandlerFactory("mock_och", och)
+	connhandler.RegisterOutboundConnectionHandlerFactory("mock_och", och)
 
 	config := mocks.Config{
 		PortValue: port,
@@ -46,7 +52,7 @@ func TestSocksTcpConnect(t *testing.T) {
 	err = point.Start()
 	assert.Error(err).IsNil()
 
-	socks5Client, err := proxy.SOCKS5("tcp", "127.0.0.1:12385", nil, proxy.Direct)
+	socks5Client, err := proxy.SOCKS5("tcp", fmt.Sprintf("127.0.0.1:%d", port), nil, proxy.Direct)
 	assert.Error(err).IsNil()
 
 	targetServer := "google.com:80"
@@ -63,21 +69,23 @@ func TestSocksTcpConnect(t *testing.T) {
 	assert.Error(err).IsNil()
 	conn.Close()
 
-	assert.Bytes([]byte(data2Send)).Equals(och.Data2Send.Bytes())
-	assert.Bytes(dataReturned).Equals(och.Data2Return)
-	assert.String(targetServer).Equals(och.Destination.Address().String())
+	assert.Bytes([]byte(data2Send)).Equals(connOutput.Bytes())
+	assert.Bytes(dataReturned).Equals(connInput)
+	assert.StringLiteral(targetServer).Equals(och.Destination.NetAddr())
 }
 
 func TestSocksTcpConnectWithUserPass(t *testing.T) {
-	assert := unit.Assert(t)
-	port := uint16(12386)
+	v2testing.Current(t)
+	port := v2nettesting.PickPort()
 
-	och := &mocks.OutboundConnectionHandler{
-		Data2Send:   bytes.NewBuffer(make([]byte, 0, 1024)),
-		Data2Return: []byte("The data to be returned to socks server."),
+	connInput := []byte("The data to be returned to socks server.")
+	connOutput := bytes.NewBuffer(make([]byte, 0, 1024))
+	och := &proxymocks.OutboundConnectionHandler{
+		ConnInput:  bytes.NewReader(connInput),
+		ConnOutput: connOutput,
 	}
 
-	v2proxy.RegisterOutboundConnectionHandlerFactory("mock_och", och)
+	connhandler.RegisterOutboundConnectionHandlerFactory("mock_och", och)
 
 	config := mocks.Config{
 		PortValue: port,
@@ -85,11 +93,8 @@ func TestSocksTcpConnectWithUserPass(t *testing.T) {
 			ProtocolValue: "socks",
 			SettingsValue: &json.SocksConfig{
 				AuthMethod: "password",
-				Accounts: []json.SocksAccount{
-					json.SocksAccount{
-						Username: "userx",
-						Password: "passy",
-					},
+				Accounts: json.SocksAccountMap{
+					"userx": "passy",
 				},
 			},
 		},
@@ -105,7 +110,7 @@ func TestSocksTcpConnectWithUserPass(t *testing.T) {
 	err = point.Start()
 	assert.Error(err).IsNil()
 
-	socks5Client, err := proxy.SOCKS5("tcp", "127.0.0.1:12386", &proxy.Auth{"userx", "passy"}, proxy.Direct)
+	socks5Client, err := proxy.SOCKS5("tcp", fmt.Sprintf("127.0.0.1:%d", port), &proxy.Auth{"userx", "passy"}, proxy.Direct)
 	assert.Error(err).IsNil()
 
 	targetServer := "1.2.3.4:443"
@@ -122,21 +127,23 @@ func TestSocksTcpConnectWithUserPass(t *testing.T) {
 	assert.Error(err).IsNil()
 	conn.Close()
 
-	assert.Bytes([]byte(data2Send)).Equals(och.Data2Send.Bytes())
-	assert.Bytes(dataReturned).Equals(och.Data2Return)
-	assert.String(targetServer).Equals(och.Destination.Address().String())
+	assert.Bytes([]byte(data2Send)).Equals(connOutput.Bytes())
+	assert.Bytes(dataReturned).Equals(connInput)
+	assert.StringLiteral(targetServer).Equals(och.Destination.NetAddr())
 }
 
 func TestSocksTcpConnectWithWrongUserPass(t *testing.T) {
-	assert := unit.Assert(t)
-	port := uint16(12389)
+	v2testing.Current(t)
+	port := v2nettesting.PickPort()
 
-	och := &mocks.OutboundConnectionHandler{
-		Data2Send:   bytes.NewBuffer(make([]byte, 0, 1024)),
-		Data2Return: []byte("The data to be returned to socks server."),
+	connInput := []byte("The data to be returned to socks server.")
+	connOutput := bytes.NewBuffer(make([]byte, 0, 1024))
+	och := &proxymocks.OutboundConnectionHandler{
+		ConnInput:  bytes.NewReader(connInput),
+		ConnOutput: connOutput,
 	}
 
-	v2proxy.RegisterOutboundConnectionHandlerFactory("mock_och", och)
+	connhandler.RegisterOutboundConnectionHandlerFactory("mock_och", och)
 
 	config := mocks.Config{
 		PortValue: port,
@@ -144,11 +151,8 @@ func TestSocksTcpConnectWithWrongUserPass(t *testing.T) {
 			ProtocolValue: "socks",
 			SettingsValue: &json.SocksConfig{
 				AuthMethod: "password",
-				Accounts: []json.SocksAccount{
-					json.SocksAccount{
-						Username: "userx",
-						Password: "passy",
-					},
+				Accounts: json.SocksAccountMap{
+					"userx": "passy",
 				},
 			},
 		},
@@ -164,7 +168,7 @@ func TestSocksTcpConnectWithWrongUserPass(t *testing.T) {
 	err = point.Start()
 	assert.Error(err).IsNil()
 
-	socks5Client, err := proxy.SOCKS5("tcp", "127.0.0.1:12389", &proxy.Auth{"userx", "passz"}, proxy.Direct)
+	socks5Client, err := proxy.SOCKS5("tcp", fmt.Sprintf("127.0.0.1:%d", port), &proxy.Auth{"userx", "passz"}, proxy.Direct)
 	assert.Error(err).IsNil()
 
 	targetServer := "1.2.3.4:443"
@@ -173,15 +177,17 @@ func TestSocksTcpConnectWithWrongUserPass(t *testing.T) {
 }
 
 func TestSocksTcpConnectWithWrongAuthMethod(t *testing.T) {
-	assert := unit.Assert(t)
-	port := uint16(38405)
+	v2testing.Current(t)
+	port := v2nettesting.PickPort()
 
-	och := &mocks.OutboundConnectionHandler{
-		Data2Send:   bytes.NewBuffer(make([]byte, 0, 1024)),
-		Data2Return: []byte("The data to be returned to socks server."),
+	connInput := []byte("The data to be returned to socks server.")
+	connOutput := bytes.NewBuffer(make([]byte, 0, 1024))
+	och := &proxymocks.OutboundConnectionHandler{
+		ConnInput:  bytes.NewReader(connInput),
+		ConnOutput: connOutput,
 	}
 
-	v2proxy.RegisterOutboundConnectionHandlerFactory("mock_och", och)
+	connhandler.RegisterOutboundConnectionHandlerFactory("mock_och", och)
 
 	config := mocks.Config{
 		PortValue: port,
@@ -189,11 +195,8 @@ func TestSocksTcpConnectWithWrongAuthMethod(t *testing.T) {
 			ProtocolValue: "socks",
 			SettingsValue: &json.SocksConfig{
 				AuthMethod: "password",
-				Accounts: []json.SocksAccount{
-					json.SocksAccount{
-						Username: "userx",
-						Password: "passy",
-					},
+				Accounts: json.SocksAccountMap{
+					"userx": "passy",
 				},
 			},
 		},
@@ -209,7 +212,7 @@ func TestSocksTcpConnectWithWrongAuthMethod(t *testing.T) {
 	err = point.Start()
 	assert.Error(err).IsNil()
 
-	socks5Client, err := proxy.SOCKS5("tcp", "127.0.0.1:38405", nil, proxy.Direct)
+	socks5Client, err := proxy.SOCKS5("tcp", fmt.Sprintf("127.0.0.1:%d", port), nil, proxy.Direct)
 	assert.Error(err).IsNil()
 
 	targetServer := "1.2.3.4:443"
@@ -218,15 +221,17 @@ func TestSocksTcpConnectWithWrongAuthMethod(t *testing.T) {
 }
 
 func TestSocksUdpSend(t *testing.T) {
-	assert := unit.Assert(t)
-	port := uint16(12372)
+	v2testing.Current(t)
+	port := v2nettesting.PickPort()
 
-	och := &mocks.OutboundConnectionHandler{
-		Data2Send:   bytes.NewBuffer(make([]byte, 0, 1024)),
-		Data2Return: []byte("The data to be returned to socks server."),
+	connInput := []byte("The data to be returned to socks server.")
+	connOutput := bytes.NewBuffer(make([]byte, 0, 1024))
+	och := &proxymocks.OutboundConnectionHandler{
+		ConnInput:  bytes.NewReader(connInput),
+		ConnOutput: connOutput,
 	}
 
-	v2proxy.RegisterOutboundConnectionHandlerFactory("mock_och", och)
+	connhandler.RegisterOutboundConnectionHandlerFactory("mock_och", och)
 
 	config := mocks.Config{
 		PortValue: port,
@@ -234,7 +239,7 @@ func TestSocksUdpSend(t *testing.T) {
 			ProtocolValue: "socks",
 			SettingsValue: &json.SocksConfig{
 				AuthMethod: "noauth",
-				UDPEnabled: true,
+				UDP:        true,
 			},
 		},
 		OutboundConfigValue: &mocks.ConnectionConfig{
@@ -270,7 +275,7 @@ func TestSocksUdpSend(t *testing.T) {
 	nBytes, err := conn.Read(response)
 
 	assert.Error(err).IsNil()
-	assert.Bytes(response[10:nBytes]).Equals(och.Data2Return)
-	assert.Bytes(data2Send).Equals(och.Data2Send.Bytes())
-	assert.String(och.Destination.String()).Equals("udp:8.8.4.4:53")
+	assert.Bytes(response[10:nBytes]).Equals(connInput)
+	assert.Bytes(data2Send).Equals(connOutput.Bytes())
+	assert.StringLiteral(och.Destination.String()).Equals("udp:8.8.4.4:53")
 }

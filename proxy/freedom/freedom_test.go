@@ -2,26 +2,29 @@ package freedom
 
 import (
 	"bytes"
-	"io/ioutil"
+	"fmt"
 	"net"
 	"testing"
 
 	"golang.org/x/net/proxy"
 
-	"github.com/v2ray/v2ray-core/app/point"
 	"github.com/v2ray/v2ray-core/common/alloc"
 	v2net "github.com/v2ray/v2ray-core/common/net"
-	v2proxy "github.com/v2ray/v2ray-core/proxy"
+	v2nettesting "github.com/v2ray/v2ray-core/common/net/testing"
+	"github.com/v2ray/v2ray-core/proxy/common/connhandler"
 	_ "github.com/v2ray/v2ray-core/proxy/socks"
-	"github.com/v2ray/v2ray-core/proxy/socks/config/json"
-	"github.com/v2ray/v2ray-core/testing/mocks"
+	"github.com/v2ray/v2ray-core/proxy/socks/json"
+	proxymocks "github.com/v2ray/v2ray-core/proxy/testing/mocks"
+	"github.com/v2ray/v2ray-core/shell/point"
+	"github.com/v2ray/v2ray-core/shell/point/testing/mocks"
+	v2testing "github.com/v2ray/v2ray-core/testing"
+	"github.com/v2ray/v2ray-core/testing/assert"
 	"github.com/v2ray/v2ray-core/testing/servers/tcp"
 	"github.com/v2ray/v2ray-core/testing/servers/udp"
-	"github.com/v2ray/v2ray-core/testing/unit"
 )
 
 func TestUDPSend(t *testing.T) {
-	assert := unit.Assert(t)
+	v2testing.Current(t)
 
 	data2Send := "Data to be sent to remote"
 
@@ -38,14 +41,15 @@ func TestUDPSend(t *testing.T) {
 	udpServerAddr, err := udpServer.Start()
 	assert.Error(err).IsNil()
 
-	ich := &mocks.InboundConnectionHandler{
-		Data2Send:    []byte("Not Used"),
-		DataReturned: bytes.NewBuffer(make([]byte, 0, 1024)),
+	connOutput := bytes.NewBuffer(make([]byte, 0, 1024))
+	ich := &proxymocks.InboundConnectionHandler{
+		ConnInput:  bytes.NewReader([]byte("Not Used")),
+		ConnOutput: connOutput,
 	}
 
-	v2proxy.RegisterInboundConnectionHandlerFactory("mock_ich", ich)
+	connhandler.RegisterInboundConnectionHandlerFactory("mock_ich", ich)
 
-	pointPort := uint16(38724)
+	pointPort := v2nettesting.PickPort()
 	config := mocks.Config{
 		PortValue: pointPort,
 		InboundConfigValue: &mocks.ConnectionConfig{
@@ -64,17 +68,15 @@ func TestUDPSend(t *testing.T) {
 	err = point.Start()
 	assert.Error(err).IsNil()
 
-	data2SendBuffer := alloc.NewBuffer()
-	data2SendBuffer.Clear()
+	data2SendBuffer := alloc.NewBuffer().Clear()
 	data2SendBuffer.Append([]byte(data2Send))
-	dest := v2net.NewUDPDestination(udpServerAddr)
-	ich.Communicate(v2net.NewPacket(dest, data2SendBuffer, false))
-	assert.Bytes(ich.DataReturned.Bytes()).Equals([]byte("Processed: Data to be sent to remote"))
+	ich.Communicate(v2net.NewPacket(udpServerAddr, data2SendBuffer, false))
+	assert.Bytes(connOutput.Bytes()).Equals([]byte("Processed: Data to be sent to remote"))
 }
 
 func TestSocksTcpConnect(t *testing.T) {
-	assert := unit.Assert(t)
-	port := uint16(38293)
+	v2testing.Current(t)
+	port := v2nettesting.PickPort()
 
 	data2Send := "Data to be sent to remote"
 
@@ -90,7 +92,7 @@ func TestSocksTcpConnect(t *testing.T) {
 	_, err := tcpServer.Start()
 	assert.Error(err).IsNil()
 
-	pointPort := uint16(38724)
+	pointPort := v2nettesting.PickPort()
 	config := mocks.Config{
 		PortValue: pointPort,
 		InboundConfigValue: &mocks.ConnectionConfig{
@@ -111,10 +113,10 @@ func TestSocksTcpConnect(t *testing.T) {
 	err = point.Start()
 	assert.Error(err).IsNil()
 
-	socks5Client, err := proxy.SOCKS5("tcp", "127.0.0.1:38724", nil, proxy.Direct)
+	socks5Client, err := proxy.SOCKS5("tcp", fmt.Sprintf("127.0.0.1:%d", pointPort), nil, proxy.Direct)
 	assert.Error(err).IsNil()
 
-	targetServer := "127.0.0.1:38293"
+	targetServer := fmt.Sprintf("127.0.0.1:%d", port)
 	conn, err := socks5Client.Dial("tcp", targetServer)
 	assert.Error(err).IsNil()
 
@@ -123,9 +125,9 @@ func TestSocksTcpConnect(t *testing.T) {
 		tcpConn.CloseWrite()
 	}
 
-	dataReturned, err := ioutil.ReadAll(conn)
+	dataReturned, err := v2net.ReadFrom(conn, nil)
 	assert.Error(err).IsNil()
 	conn.Close()
 
-	assert.Bytes(dataReturned).Equals([]byte("Processed: Data to be sent to remote"))
+	assert.Bytes(dataReturned.Value).Equals([]byte("Processed: Data to be sent to remote"))
 }

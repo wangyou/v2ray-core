@@ -4,15 +4,16 @@ import (
 	"testing"
 	"time"
 
-	"github.com/v2ray/v2ray-core/testing/unit"
+	v2testing "github.com/v2ray/v2ray-core/testing"
+	"github.com/v2ray/v2ray-core/testing/assert"
 )
 
 func TestTimedQueue(t *testing.T) {
-	assert := unit.Assert(t)
+	v2testing.Current(t)
 
 	removed := make(map[string]bool)
 
-	nowSec := time.Now().UTC().Unix()
+	nowSec := time.Now().Unix()
 	q := NewTimedQueue(2)
 
 	go func() {
@@ -51,7 +52,7 @@ func TestTimedQueue(t *testing.T) {
 	<-tick
 	assert.Bool(removed["Values"]).IsFalse()
 
-	q.Add("Value1", time.Now().UTC().Unix()+10)
+	q.Add("Value1", time.Now().Unix()+10)
 
 	<-tick
 	v1, ok = removed["Value1"]

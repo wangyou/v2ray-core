@@ -2,19 +2,16 @@ package socks
 
 import (
 	"github.com/v2ray/v2ray-core/app"
-	"github.com/v2ray/v2ray-core/proxy"
-	"github.com/v2ray/v2ray-core/proxy/socks/config/json"
+	"github.com/v2ray/v2ray-core/proxy/common/connhandler"
 )
 
 type SocksServerFactory struct {
 }
 
-func (factory SocksServerFactory) Create(dispatcher app.PacketDispatcher, rawConfig interface{}) (proxy.InboundConnectionHandler, error) {
-	config := rawConfig.(*json.SocksConfig)
-	config.Initialize()
-	return NewSocksServer(dispatcher, config), nil
+func (this SocksServerFactory) Create(space app.Space, rawConfig interface{}) (connhandler.InboundConnectionHandler, error) {
+	return NewSocksServer(space, rawConfig.(Config)), nil
 }
 
 func init() {
-	proxy.RegisterInboundConnectionHandlerFactory("socks", SocksServerFactory{})
+	connhandler.RegisterInboundConnectionHandlerFactory("socks", SocksServerFactory{})
 }

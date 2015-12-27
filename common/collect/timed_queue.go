@@ -22,9 +22,7 @@ func (queue timedQueueImpl) Less(i, j int) bool {
 }
 
 func (queue timedQueueImpl) Swap(i, j int) {
-	tmp := queue[i]
-	queue[i] = queue[j]
-	queue[j] = tmp
+	queue[i], queue[j] = queue[j], queue[i]
 }
 
 func (queue *timedQueueImpl) Push(value interface{}) {
@@ -41,6 +39,7 @@ func (queue *timedQueueImpl) Pop() interface{} {
 	return v
 }
 
+// TimedQueue is a priority queue that entries with oldest timestamp get removed first.
 type TimedQueue struct {
 	queue   timedQueueImpl
 	access  sync.RWMutex
@@ -72,7 +71,7 @@ func (queue *TimedQueue) RemovedEntries() <-chan interface{} {
 
 func (queue *TimedQueue) cleanup(tick <-chan time.Time) {
 	for now := range tick {
-		nowSec := now.UTC().Unix()
+		nowSec := now.Unix()
 		for {
 			queue.access.RLock()
 			queueLen := queue.queue.Len()

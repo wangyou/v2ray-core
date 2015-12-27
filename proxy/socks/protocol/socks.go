@@ -1,13 +1,13 @@
 package protocol
 
 import (
-	"encoding/binary"
 	"io"
+	"net"
 
 	"github.com/v2ray/v2ray-core/common/alloc"
 	"github.com/v2ray/v2ray-core/common/log"
 	v2net "github.com/v2ray/v2ray-core/common/net"
-	"github.com/v2ray/v2ray-core/proxy"
+	proxyerrors "github.com/v2ray/v2ray-core/proxy/common/errors"
 	"github.com/v2ray/v2ray-core/transport"
 )
 
@@ -57,7 +57,7 @@ func ReadAuthentication(reader io.Reader) (auth Socks5AuthenticationRequest, aut
 	if buffer.Value[0] == socks4Version {
 		auth4.Version = buffer.Value[0]
 		auth4.Command = buffer.Value[1]
-		auth4.Port = binary.BigEndian.Uint16(buffer.Value[2:4])
+		auth4.Port = v2net.PortFromBytes(buffer.Value[2:4])
 		copy(auth4.IP[:], buffer.Value[4:8])
 		err = Socks4Downgrade
 		return
@@ -66,7 +66,7 @@ func ReadAuthentication(reader io.Reader) (auth Socks5AuthenticationRequest, aut
 	auth.version = buffer.Value[0]
 	if auth.version != socksVersion {
 		log.Warning("Unknown protocol version %d", auth.version)
-		err = proxy.InvalidProtocolVersion
+		err = proxyerrors.InvalidProtocolVersion
 		return
 	}
 
@@ -184,7 +184,7 @@ type Socks5Request struct {
 	IPv4     [4]byte
 	Domain   string
 	IPv6     [16]byte
-	Port     uint16
+	Port     v2net.Port
 }
 
 func ReadRequest(reader io.Reader) (request *Socks5Request, err error) {
@@ -256,23 +256,26 @@ func ReadRequest(reader io.Reader) (request *Socks5Request, err error) {
 		return
 	}
 
-	request.Port = binary.BigEndian.Uint16(buffer.Value[:2])
+	request.Port = v2net.PortFromBytes(buffer.Value[:2])
 	return
 }
 
 func (request *Socks5Request) Destination() v2net.Destination {
-	var address v2net.Address
 	switch request.AddrType {
 	case AddrTypeIPv4:
-		address = v2net.IPAddress(request.IPv4[:], request.Port)
+		return v2net.TCPDestination(v2net.IPAddress(request.IPv4[:]), request.Port)
 	case AddrTypeIPv6:
-		address = v2net.IPAddress(request.IPv6[:], request.Port)
+		return v2net.TCPDestination(v2net.IPAddress(request.IPv6[:]), request.Port)
 	case AddrTypeDomain:
-		address = v2net.DomainAddress(request.Domain, request.Port)
+		maybeIP := net.ParseIP(request.Domain)
+		if maybeIP != nil {
+			return v2net.TCPDestination(v2net.IPAddress(maybeIP), request.Port)
+		} else {
+			return v2net.TCPDestination(v2net.DomainAddress(request.Domain), request.Port)
+		}
 	default:
 		panic("Unknown address type")
 	}
-	return v2net.NewTCPDestination(address)
 }
 
 const (
@@ -294,7 +297,7 @@ type Socks5Response struct {
 	IPv4     [4]byte
 	Domain   string
 	IPv6     [16]byte
-	Port     uint16
+	Port     v2net.Port
 }
 
 func NewSocks5Response() *Socks5Response {
@@ -329,5 +332,5 @@ func (r *Socks5Response) Write(buffer *alloc.Buffer) {
 	case 0x04:
 		buffer.Append(r.IPv6[:])
 	}
-	buffer.AppendBytes(byte(r.Port>>8), byte(r.Port))
+	buffer.Append(r.Port.Bytes())
 }

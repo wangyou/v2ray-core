@@ -1,6 +1,7 @@
 package net
 
 import (
+	"io"
 	"net"
 	"time"
 )
@@ -12,21 +13,19 @@ var (
 type TimeOutReader struct {
 	timeout    int
 	connection net.Conn
+	worker     io.Reader
 }
 
 func NewTimeOutReader(timeout int, connection net.Conn) *TimeOutReader {
-	return &TimeOutReader{
-		timeout:    timeout,
+	reader := &TimeOutReader{
 		connection: connection,
 	}
+	reader.SetTimeOut(timeout)
+	return reader
 }
 
-func (reader *TimeOutReader) Read(p []byte) (n int, err error) {
-	deadline := time.Duration(reader.timeout) * time.Second
-	reader.connection.SetReadDeadline(time.Now().Add(deadline))
-	n, err = reader.connection.Read(p)
-	reader.connection.SetReadDeadline(emptyTime)
-	return
+func (reader *TimeOutReader) Read(p []byte) (int, error) {
+	return reader.worker.Read(p)
 }
 
 func (reader *TimeOutReader) GetTimeOut() int {
@@ -35,4 +34,35 @@ func (reader *TimeOutReader) GetTimeOut() int {
 
 func (reader *TimeOutReader) SetTimeOut(value int) {
 	reader.timeout = value
+	if value > 0 {
+		reader.worker = &timedReaderWorker{
+			timeout:    value,
+			connection: reader.connection,
+		}
+	} else {
+		reader.worker = &noOpReaderWorker{
+			connection: reader.connection,
+		}
+	}
+}
+
+type timedReaderWorker struct {
+	timeout    int
+	connection net.Conn
+}
+
+func (this *timedReaderWorker) Read(p []byte) (int, error) {
+	deadline := time.Duration(this.timeout) * time.Second
+	this.connection.SetReadDeadline(time.Now().Add(deadline))
+	nBytes, err := this.connection.Read(p)
+	this.connection.SetReadDeadline(emptyTime)
+	return nBytes, err
+}
+
+type noOpReaderWorker struct {
+	connection net.Conn
+}
+
+func (this *noOpReaderWorker) Read(p []byte) (int, error) {
+	return this.connection.Read(p)
 }

@@ -1,4 +1,4 @@
-package net
+package net_test
 
 import (
 	"bytes"
@@ -8,11 +8,13 @@ import (
 	"testing"
 
 	"github.com/v2ray/v2ray-core/common/alloc"
-	"github.com/v2ray/v2ray-core/testing/unit"
+	v2net "github.com/v2ray/v2ray-core/common/net"
+	v2testing "github.com/v2ray/v2ray-core/testing"
+	"github.com/v2ray/v2ray-core/testing/assert"
 )
 
 func TestReaderAndWrite(t *testing.T) {
-	assert := unit.Assert(t)
+	v2testing.Current(t)
 
 	size := 1024 * 1024
 	buffer := make([]byte, size)
@@ -25,11 +27,11 @@ func TestReaderAndWrite(t *testing.T) {
 
 	transportChan := make(chan *alloc.Buffer, 1024)
 
-	err = ReaderToChan(transportChan, readerBuffer)
+	err = v2net.ReaderToChan(transportChan, readerBuffer)
 	assert.Error(err).Equals(io.EOF)
 	close(transportChan)
 
-	err = ChanToWriter(writerBuffer, transportChan)
+	err = v2net.ChanToWriter(writerBuffer, transportChan)
 	assert.Error(err).IsNil()
 
 	assert.Bytes(buffer).Equals(writerBuffer.Bytes())
@@ -127,22 +129,22 @@ func runBenchmarkTransport(size int) {
 	finishB := make(chan bool)
 
 	go func() {
-		ChanToWriter(writerA, transportChanA)
+		v2net.ChanToWriter(writerA, transportChanA)
 		close(finishA)
 	}()
 
 	go func() {
-		ReaderToChan(transportChanA, readerA)
+		v2net.ReaderToChan(transportChanA, readerA)
 		close(transportChanA)
 	}()
 
 	go func() {
-		ChanToWriter(writerB, transportChanB)
+		v2net.ChanToWriter(writerB, transportChanB)
 		close(finishB)
 	}()
 
 	go func() {
-		ReaderToChan(transportChanB, readerB)
+		v2net.ReaderToChan(transportChanB, readerB)
 		close(transportChanB)
 	}()
 

@@ -8,11 +8,12 @@ import (
 )
 
 type Server struct {
-	Port         uint16
+	Port         v2net.Port
 	MsgProcessor func(msg []byte) []byte
+	accepting    bool
 }
 
-func (server *Server) Start() (v2net.Address, error) {
+func (server *Server) Start() (v2net.Destination, error) {
 	conn, err := net.ListenUDP("udp", &net.UDPAddr{
 		IP:   []byte{0, 0, 0, 0},
 		Port: int(server.Port),
@@ -23,10 +24,12 @@ func (server *Server) Start() (v2net.Address, error) {
 	}
 	go server.handleConnection(conn)
 	localAddr := conn.LocalAddr().(*net.UDPAddr)
-	return v2net.IPAddress(localAddr.IP, uint16(localAddr.Port)), nil
+	return v2net.UDPDestination(v2net.IPAddress(localAddr.IP), v2net.Port(localAddr.Port)), nil
 }
 
 func (server *Server) handleConnection(conn *net.UDPConn) {
+	server.accepting = true
+	defer conn.Close()
 	for {
 		buffer := make([]byte, 2*1024)
 		nBytes, addr, err := conn.ReadFromUDP(buffer)
@@ -38,4 +41,8 @@ func (server *Server) handleConnection(conn *net.UDPConn) {
 		response := server.MsgProcessor(buffer[:nBytes])
 		conn.WriteToUDP(response, addr)
 	}
+}
+
+func (server *Server) Close() {
+	server.accepting = false
 }
