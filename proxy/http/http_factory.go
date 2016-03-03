@@ -2,16 +2,19 @@ package http
 
 import (
 	"github.com/v2ray/v2ray-core/app"
-	"github.com/v2ray/v2ray-core/proxy/common/connhandler"
+	"github.com/v2ray/v2ray-core/app/dispatcher"
+	"github.com/v2ray/v2ray-core/proxy"
+	"github.com/v2ray/v2ray-core/proxy/internal"
 )
 
-type HttpProxyServerFactory struct {
-}
-
-func (this HttpProxyServerFactory) Create(space app.Space, rawConfig interface{}) (connhandler.InboundConnectionHandler, error) {
-	return NewHttpProxyServer(space, rawConfig.(Config)), nil
-}
-
 func init() {
-	connhandler.RegisterInboundConnectionHandlerFactory("http", HttpProxyServerFactory{})
+	internal.MustRegisterInboundHandlerCreator("http",
+		func(space app.Space, rawConfig interface{}) (proxy.InboundHandler, error) {
+			if !space.HasApp(dispatcher.APP_ID) {
+				return nil, internal.ErrorBadConfiguration
+			}
+			return NewHttpProxyServer(
+				rawConfig.(*Config),
+				space.GetApp(dispatcher.APP_ID).(dispatcher.PacketDispatcher)), nil
+		})
 }

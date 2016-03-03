@@ -10,8 +10,8 @@ import (
 )
 
 var (
-	InvalidRule      = errors.New("Invalid Rule")
-	NoRuleApplicable = errors.New("No rule applicable")
+	ErrorInvalidRule      = errors.New("Invalid Rule")
+	ErrorNoRuleApplicable = errors.New("No rule applicable")
 )
 
 type cacheEntry struct {
@@ -38,29 +38,24 @@ func (this *cacheEntry) Extend() {
 }
 
 type Router struct {
-	rules []Rule
-	cache *collect.ValidityMap
+	config *RouterRuleConfig
+	cache  *collect.ValidityMap
 }
 
-func NewRouter() *Router {
+func NewRouter(config *RouterRuleConfig) *Router {
 	return &Router{
-		rules: make([]Rule, 0, 16),
-		cache: collect.NewValidityMap(3600),
+		config: config,
+		cache:  collect.NewValidityMap(3600),
 	}
-}
-
-func (this *Router) AddRule(rule Rule) *Router {
-	this.rules = append(this.rules, rule)
-	return this
 }
 
 func (this *Router) takeDetourWithoutCache(dest v2net.Destination) (string, error) {
-	for _, rule := range this.rules {
+	for _, rule := range this.config.Rules {
 		if rule.Apply(dest) {
-			return rule.Tag(), nil
+			return rule.Tag, nil
 		}
 	}
-	return "", NoRuleApplicable
+	return "", ErrorNoRuleApplicable
 }
 
 func (this *Router) TakeDetour(dest v2net.Destination) (string, error) {
@@ -78,16 +73,7 @@ type RouterFactory struct {
 }
 
 func (this *RouterFactory) Create(rawConfig interface{}) (router.Router, error) {
-	config := rawConfig.(RouterRuleConfig)
-	rules := config.Rules()
-	router := NewRouter()
-	for _, rule := range rules {
-		if rule == nil {
-			return nil, InvalidRule
-		}
-		router.AddRule(rule)
-	}
-	return router, nil
+	return NewRouter(rawConfig.(*RouterRuleConfig)), nil
 }
 
 func init() {

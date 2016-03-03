@@ -2,12 +2,11 @@ package protocol
 
 import (
 	"io"
-	"net"
 
 	"github.com/v2ray/v2ray-core/common/alloc"
 	"github.com/v2ray/v2ray-core/common/log"
 	v2net "github.com/v2ray/v2ray-core/common/net"
-	proxyerrors "github.com/v2ray/v2ray-core/proxy/common/errors"
+	"github.com/v2ray/v2ray-core/proxy"
 	"github.com/v2ray/v2ray-core/transport"
 )
 
@@ -49,8 +48,8 @@ func ReadAuthentication(reader io.Reader) (auth Socks5AuthenticationRequest, aut
 		return
 	}
 	if nBytes < 2 {
-		log.Info("Socks expected 2 bytes read, but only %d bytes read", nBytes)
-		err = transport.CorruptedPacket
+		log.Warning("Socks: expected 2 bytes read, but only ", nBytes, " bytes read")
+		err = transport.ErrorCorruptedPacket
 		return
 	}
 
@@ -65,21 +64,21 @@ func ReadAuthentication(reader io.Reader) (auth Socks5AuthenticationRequest, aut
 
 	auth.version = buffer.Value[0]
 	if auth.version != socksVersion {
-		log.Warning("Unknown protocol version %d", auth.version)
-		err = proxyerrors.InvalidProtocolVersion
+		log.Warning("Socks: Unknown protocol version ", auth.version)
+		err = proxy.ErrorInvalidProtocolVersion
 		return
 	}
 
 	auth.nMethods = buffer.Value[1]
 	if auth.nMethods <= 0 {
-		log.Info("Zero length of authentication methods")
-		err = transport.CorruptedPacket
+		log.Warning("Socks: Zero length of authentication methods")
+		err = proxy.ErrorInvalidAuthentication
 		return
 	}
 
 	if nBytes-2 != int(auth.nMethods) {
-		log.Info("Unmatching number of auth methods, expecting %d, but got %d", auth.nMethods, nBytes)
-		err = transport.CorruptedPacket
+		log.Warning("Socks: Unmatching number of auth methods, expecting ", auth.nMethods, ", but got ", nBytes)
+		err = proxy.ErrorInvalidAuthentication
 		return
 	}
 	copy(auth.authMethods[:], buffer.Value[2:nBytes])
@@ -191,14 +190,11 @@ func ReadRequest(reader io.Reader) (request *Socks5Request, err error) {
 	buffer := alloc.NewSmallBuffer()
 	defer buffer.Release()
 
-	nBytes, err := reader.Read(buffer.Value[:4])
+	_, err = io.ReadFull(reader, buffer.Value[:4])
 	if err != nil {
 		return
 	}
-	if nBytes < 4 {
-		err = transport.CorruptedPacket
-		return
-	}
+
 	request = &Socks5Request{
 		Version: buffer.Value[0],
 		Command: buffer.Value[1],
@@ -207,52 +203,35 @@ func ReadRequest(reader io.Reader) (request *Socks5Request, err error) {
 	}
 	switch request.AddrType {
 	case AddrTypeIPv4:
-		nBytes, err = reader.Read(request.IPv4[:])
+		_, err = io.ReadFull(reader, request.IPv4[:])
 		if err != nil {
 			return
 		}
-		if nBytes != 4 {
-			err = transport.CorruptedPacket
-			return
-		}
 	case AddrTypeDomain:
-		nBytes, err = reader.Read(buffer.Value[0:1])
+		_, err = io.ReadFull(reader, buffer.Value[0:1])
 		if err != nil {
 			return
 		}
 		domainLength := buffer.Value[0]
-		nBytes, err = reader.Read(buffer.Value[:domainLength])
+		_, err = io.ReadFull(reader, buffer.Value[:domainLength])
 		if err != nil {
 			return
 		}
 
-		if nBytes != int(domainLength) {
-			log.Info("Unable to read domain with %d bytes, expecting %d bytes", nBytes, domainLength)
-			err = transport.CorruptedPacket
-			return
-		}
-		request.Domain = string(buffer.Value[:domainLength])
+		request.Domain = string(append([]byte(nil), buffer.Value[:domainLength]...))
 	case AddrTypeIPv6:
-		nBytes, err = reader.Read(request.IPv6[:])
+		_, err = io.ReadFull(reader, request.IPv6[:])
 		if err != nil {
-			return
-		}
-		if nBytes != 16 {
-			err = transport.CorruptedPacket
 			return
 		}
 	default:
-		log.Info("Unexpected address type %d", request.AddrType)
-		err = transport.CorruptedPacket
+		log.Warning("Socks: Unexpected address type ", request.AddrType)
+		err = transport.ErrorCorruptedPacket
 		return
 	}
 
-	nBytes, err = reader.Read(buffer.Value[:2])
+	_, err = io.ReadFull(reader, buffer.Value[:2])
 	if err != nil {
-		return
-	}
-	if nBytes != 2 {
-		err = transport.CorruptedPacket
 		return
 	}
 
@@ -267,12 +246,7 @@ func (request *Socks5Request) Destination() v2net.Destination {
 	case AddrTypeIPv6:
 		return v2net.TCPDestination(v2net.IPAddress(request.IPv6[:]), request.Port)
 	case AddrTypeDomain:
-		maybeIP := net.ParseIP(request.Domain)
-		if maybeIP != nil {
-			return v2net.TCPDestination(v2net.IPAddress(maybeIP), request.Port)
-		} else {
-			return v2net.TCPDestination(v2net.DomainAddress(request.Domain), request.Port)
-		}
+		return v2net.TCPDestination(v2net.ParseAddress(request.Domain), request.Port)
 	default:
 		panic("Unknown address type")
 	}
@@ -321,16 +295,16 @@ func (r *Socks5Response) SetDomain(domain string) {
 	r.Domain = domain
 }
 
-func (r *Socks5Response) Write(buffer *alloc.Buffer) {
-	buffer.AppendBytes(r.Version, r.Error, 0x00 /* reserved */, r.AddrType)
+func (r *Socks5Response) Write(writer io.Writer) {
+	writer.Write([]byte{r.Version, r.Error, 0x00 /* reserved */, r.AddrType})
 	switch r.AddrType {
 	case 0x01:
-		buffer.Append(r.IPv4[:])
+		writer.Write(r.IPv4[:])
 	case 0x03:
-		buffer.AppendBytes(byte(len(r.Domain)))
-		buffer.Append([]byte(r.Domain))
+		writer.Write([]byte{byte(len(r.Domain))})
+		writer.Write([]byte(r.Domain))
 	case 0x04:
-		buffer.Append(r.IPv6[:])
+		writer.Write(r.IPv6[:])
 	}
-	buffer.Append(r.Port.Bytes())
+	writer.Write(r.Port.Bytes())
 }

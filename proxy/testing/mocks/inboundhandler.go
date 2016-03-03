@@ -4,25 +4,33 @@ import (
 	"io"
 	"sync"
 
-	"github.com/v2ray/v2ray-core/app"
+	"github.com/v2ray/v2ray-core/app/dispatcher"
+	v2io "github.com/v2ray/v2ray-core/common/io"
 	v2net "github.com/v2ray/v2ray-core/common/net"
-	"github.com/v2ray/v2ray-core/proxy/common/connhandler"
 )
 
 type InboundConnectionHandler struct {
-	Port       v2net.Port
-	space      app.Space
-	ConnInput  io.Reader
-	ConnOutput io.Writer
+	port             v2net.Port
+	PacketDispatcher dispatcher.PacketDispatcher
+	ConnInput        io.Reader
+	ConnOutput       io.Writer
 }
 
 func (this *InboundConnectionHandler) Listen(port v2net.Port) error {
-	this.Port = port
+	this.port = port
 	return nil
 }
 
+func (this *InboundConnectionHandler) Port() v2net.Port {
+	return this.port
+}
+
+func (this *InboundConnectionHandler) Close() {
+
+}
+
 func (this *InboundConnectionHandler) Communicate(packet v2net.Packet) error {
-	ray := this.space.PacketDispatcher().DispatchToOutbound(packet)
+	ray := this.PacketDispatcher.DispatchToOutbound(packet)
 
 	input := ray.InboundInput()
 	output := ray.InboundOutput()
@@ -34,22 +42,17 @@ func (this *InboundConnectionHandler) Communicate(packet v2net.Packet) error {
 	writeFinish.Lock()
 
 	go func() {
-		v2net.ReaderToChan(input, this.ConnInput)
+		v2io.RawReaderToChan(input, this.ConnInput)
 		close(input)
 		readFinish.Unlock()
 	}()
 
 	go func() {
-		v2net.ChanToWriter(this.ConnOutput, output)
+		v2io.ChanToRawWriter(this.ConnOutput, output)
 		writeFinish.Unlock()
 	}()
 
 	readFinish.Lock()
 	writeFinish.Lock()
 	return nil
-}
-
-func (this *InboundConnectionHandler) Create(space app.Space, config interface{}) (connhandler.InboundConnectionHandler, error) {
-	this.space = space
-	return this, nil
 }

@@ -12,10 +12,6 @@ import (
 	"github.com/v2ray/v2ray-core/testing/servers/udp"
 )
 
-var (
-	serverUp = false
-)
-
 func TestTCPConnection(t *testing.T) {
 	v2testing.Current(t)
 
@@ -37,11 +33,12 @@ func TestTCPConnection(t *testing.T) {
 
 	socksPort := v2net.Port(50000)
 
-	for i := 0; i < 10; i++ {
+	for i := 0; i < 100; i++ {
 		conn, err := net.DialTCP("tcp", nil, &net.TCPAddr{
 			IP:   []byte{127, 0, 0, 1},
 			Port: int(socksPort),
 		})
+		assert.Error(err).IsNil()
 
 		authRequest := socks5AuthMethodRequest(byte(0))
 		nBytes, err := conn.Write(authRequest)
@@ -86,6 +83,8 @@ func TestTCPConnection(t *testing.T) {
 
 		conn.Close()
 	}
+
+	CloseAllServers()
 }
 
 func TestTCPBind(t *testing.T) {
@@ -135,6 +134,8 @@ func TestTCPBind(t *testing.T) {
 	assert.Bytes(connectResponse[:nBytes]).Equals([]byte{socks5Version, 7, 0, 1, 0, 0, 0, 0, 0, 0})
 
 	conn.Close()
+
+	CloseAllServers()
 }
 
 func TestUDPAssociate(t *testing.T) {
@@ -189,19 +190,23 @@ func TestUDPAssociate(t *testing.T) {
 	})
 	assert.Error(err).IsNil()
 
-	udpPayload := "UDP request to udp server."
-	udpRequest := socks5UDPRequest(v2net.UDPDestination(v2net.IPAddress([]byte{127, 0, 0, 1}), targetPort), []byte(udpPayload))
+	for i := 0; i < 100; i++ {
+		udpPayload := "UDP request to udp server."
+		udpRequest := socks5UDPRequest(v2net.UDPDestination(v2net.IPAddress([]byte{127, 0, 0, 1}), targetPort), []byte(udpPayload))
 
-	nBytes, err = udpConn.Write(udpRequest)
-	assert.Int(nBytes).Equals(len(udpRequest))
-	assert.Error(err).IsNil()
+		nBytes, err = udpConn.Write(udpRequest)
+		assert.Int(nBytes).Equals(len(udpRequest))
+		assert.Error(err).IsNil()
 
-	udpResponse := make([]byte, 1024)
-	nBytes, err = udpConn.Read(udpResponse)
-	assert.Error(err).IsNil()
-	assert.Bytes(udpResponse[:nBytes]).Equals(
-		socks5UDPRequest(v2net.UDPDestination(v2net.IPAddress([]byte{127, 0, 0, 1}), targetPort), []byte("Processed: UDP request to udp server.")))
+		udpResponse := make([]byte, 1024)
+		nBytes, err = udpConn.Read(udpResponse)
+		assert.Error(err).IsNil()
+		assert.Bytes(udpResponse[:nBytes]).Equals(
+			socks5UDPRequest(v2net.UDPDestination(v2net.IPAddress([]byte{127, 0, 0, 1}), targetPort), []byte("Processed: UDP request to udp server.")))
+	}
 
 	udpConn.Close()
 	conn.Close()
+
+	CloseAllServers()
 }

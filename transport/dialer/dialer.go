@@ -2,34 +2,30 @@ package dialer
 
 import (
 	"errors"
-	"math/rand"
 	"net"
+	"time"
 
 	v2net "github.com/v2ray/v2ray-core/common/net"
 )
 
 var (
-	ErrInvalidHost = errors.New("Invalid Host.")
+	ErrorInvalidHost = errors.New("Invalid Host.")
 )
 
 func Dial(dest v2net.Destination) (net.Conn, error) {
-	var ip net.IP
-	if dest.Address().IsIPv4() || dest.Address().IsIPv6() {
-		ip = dest.Address().IP()
-	} else {
-		ips, err := net.LookupIP(dest.Address().Domain())
-		if err != nil {
-			return nil, err
+	if dest.Address().IsDomain() {
+		dialer := &net.Dialer{
+			Timeout:   time.Second * 60,
+			DualStack: true,
 		}
-		if len(ips) == 0 {
-			return nil, ErrInvalidHost
+		network := "tcp"
+		if dest.IsUDP() {
+			network = "udp"
 		}
-		if len(ips) == 1 {
-			ip = ips[0]
-		} else {
-			ip = ips[rand.Intn(len(ips))]
-		}
+		return dialer.Dial(network, dest.NetAddr())
 	}
+
+	ip := dest.Address().IP()
 	if dest.IsTCP() {
 		return net.DialTCP("tcp", nil, &net.TCPAddr{
 			IP:   ip,

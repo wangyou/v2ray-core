@@ -10,14 +10,14 @@ import (
 	"github.com/v2ray/v2ray-core/transport"
 )
 
-func TestSingleByteRequest(t *testing.T) {
+func TestSingleByteUDPRequest(t *testing.T) {
 	v2testing.Current(t)
 
 	request, err := ReadUDPRequest(make([]byte, 1))
 	if request != nil {
 		t.Fail()
 	}
-	assert.Error(err).Equals(transport.CorruptedPacket)
+	assert.Error(err).Equals(transport.ErrorCorruptedPacket)
 }
 
 func TestDomainAddressRequest(t *testing.T) {

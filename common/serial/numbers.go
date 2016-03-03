@@ -18,6 +18,10 @@ func (this Uint16Literal) Value() uint16 {
 	return uint16(this)
 }
 
+func (this Uint16Literal) Bytes() []byte {
+	return []byte{byte(this >> 8), byte(this)}
+}
+
 type Int interface {
 	Value() int
 }
@@ -30,6 +34,16 @@ func (this IntLiteral) String() string {
 
 func (this IntLiteral) Value() int {
 	return int(this)
+}
+
+func (this IntLiteral) Bytes() []byte {
+	value := this.Value()
+	return []byte{
+		byte(value >> 24),
+		byte(value >> 16),
+		byte(value >> 8),
+		byte(value),
+	}
 }
 
 type Int64Literal int64

@@ -17,6 +17,9 @@ func TestParseBytes(t *testing.T) {
 	uuid, err := ParseBytes(bytes)
 	assert.Error(err).IsNil()
 	assert.String(uuid).Equals(str)
+
+	uuid, err = ParseBytes([]byte{1, 3, 2, 4})
+	assert.Error(err).Equals(ErrorInvalidID)
 }
 
 func TestParseString(t *testing.T) {
@@ -28,6 +31,12 @@ func TestParseString(t *testing.T) {
 	uuid, err := ParseString(str)
 	assert.Error(err).IsNil()
 	assert.Bytes(uuid.Bytes()).Equals(expectedBytes)
+
+	uuid, err = ParseString("2418d087")
+	assert.Error(err).Equals(ErrorInvalidID)
+
+	uuid, err = ParseString("2418d087-648k-4990-86e8-19dca1d006d3")
+	assert.Error(err).IsNotNil()
 }
 
 func TestNewUUID(t *testing.T) {
@@ -49,4 +58,21 @@ func TestRandom(t *testing.T) {
 
 	assert.StringLiteral(uuid.String()).NotEquals(uuid2.String())
 	assert.Bytes(uuid.Bytes()).NotEquals(uuid2.Bytes())
+}
+
+func TestEquals(t *testing.T) {
+	v2testing.Current(t)
+
+	var uuid *UUID = nil
+	var uuid2 *UUID = nil
+	assert.Bool(uuid.Equals(uuid2)).IsTrue()
+	assert.Bool(uuid.Equals(New())).IsFalse()
+}
+
+func TestNext(t *testing.T) {
+	v2testing.Current(t)
+
+	uuid := New()
+	uuid2 := uuid.Next()
+	assert.Bool(uuid.Equals(uuid2)).IsFalse()
 }

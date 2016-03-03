@@ -1,90 +1,72 @@
 package socks
 
 import (
-	"net"
-
 	"github.com/v2ray/v2ray-core/common/alloc"
 	"github.com/v2ray/v2ray-core/common/log"
 	v2net "github.com/v2ray/v2ray-core/common/net"
 	"github.com/v2ray/v2ray-core/proxy/socks/protocol"
+	"github.com/v2ray/v2ray-core/transport/hub"
 )
 
-var udpAddress v2net.Destination
-
-func (this *SocksServer) ListenUDP(port v2net.Port) error {
-	addr := &net.UDPAddr{
-		IP:   net.IP{0, 0, 0, 0},
-		Port: int(port),
-		Zone: "",
-	}
-	conn, err := net.ListenUDP("udp", addr)
+func (this *SocksServer) listenUDP(port v2net.Port) error {
+	this.udpServer = hub.NewUDPServer(this.packetDispatcher)
+	udpHub, err := hub.ListenUDP(port, this.handleUDPPayload)
 	if err != nil {
-		log.Error("Socks failed to listen UDP on port %d: %v", port, err)
+		log.Error("Socks: Failed to listen on udp port ", port)
 		return err
 	}
-	udpAddress = v2net.UDPDestination(v2net.IPAddress(this.config.IP()), port)
-
-	go this.AcceptPackets(conn)
+	this.udpMutex.Lock()
+	this.udpAddress = v2net.UDPDestination(this.config.Address, port)
+	this.udpHub = udpHub
+	this.udpMutex.Unlock()
 	return nil
 }
 
-func (this *SocksServer) getUDPAddr() v2net.Destination {
-	return udpAddress
-}
+func (this *SocksServer) handleUDPPayload(payload *alloc.Buffer, source v2net.Destination) {
+	log.Info("Socks: Client UDP connection from ", source)
+	request, err := protocol.ReadUDPRequest(payload.Value)
+	payload.Release()
 
-func (this *SocksServer) AcceptPackets(conn *net.UDPConn) error {
-	for {
-		buffer := alloc.NewBuffer()
-		nBytes, addr, err := conn.ReadFromUDP(buffer.Value)
-		if err != nil {
-			log.Error("Socks failed to read UDP packets: %v", err)
-			buffer.Release()
-			continue
-		}
-		log.Info("Client UDP connection from %v", addr)
-		request, err := protocol.ReadUDPRequest(buffer.Value[:nBytes])
-		buffer.Release()
-		if err != nil {
-			log.Error("Socks failed to parse UDP request: %v", err)
-			continue
-		}
-		if request.Data == nil || request.Data.Len() == 0 {
-			continue
-		}
-		if request.Fragment != 0 {
-			log.Warning("Dropping fragmented UDP packets.")
-			// TODO handle fragments
-			request.Data.Release()
-			continue
-		}
-
-		udpPacket := v2net.NewPacket(request.Destination(), request.Data, false)
-		log.Info("Send packet to %s with %d bytes", udpPacket.Destination().String(), request.Data.Len())
-		go this.handlePacket(conn, udpPacket, addr, request.Address, request.Port)
+	if err != nil {
+		log.Error("Socks: Failed to parse UDP request: ", err)
+		return
 	}
-}
+	if request.Data.Len() == 0 {
+		request.Data.Release()
+		return
+	}
+	if request.Fragment != 0 {
+		log.Warning("Socks: Dropping fragmented UDP packets.")
+		// TODO handle fragments
+		request.Data.Release()
+		return
+	}
 
-func (this *SocksServer) handlePacket(conn *net.UDPConn, packet v2net.Packet, clientAddr *net.UDPAddr, targetAddr v2net.Address, port v2net.Port) {
-	ray := this.space.PacketDispatcher().DispatchToOutbound(packet)
-	close(ray.InboundInput())
-
-	for data := range ray.InboundOutput() {
+	udpPacket := v2net.NewPacket(request.Destination(), request.Data, false)
+	log.Info("Socks: Send packet to ", udpPacket.Destination(), " with ", request.Data.Len(), " bytes")
+	this.udpServer.Dispatch(source, udpPacket, func(packet v2net.Packet) {
 		response := &protocol.Socks5UDPRequest{
 			Fragment: 0,
-			Address:  targetAddr,
-			Port:     port,
-			Data:     data,
+			Address:  udpPacket.Destination().Address(),
+			Port:     udpPacket.Destination().Port(),
+			Data:     packet.Chunk(),
 		}
-		log.Info("Writing back UDP response with %d bytes from %s to %s", data.Len(), targetAddr.String(), clientAddr.String())
+		log.Info("Socks: Writing back UDP response with ", response.Data.Len(), " bytes to ", packet.Destination())
 
 		udpMessage := alloc.NewSmallBuffer().Clear()
 		response.Write(udpMessage)
 
-		nBytes, err := conn.WriteToUDP(udpMessage.Value, clientAddr)
+		this.udpMutex.RLock()
+		if !this.accepting {
+			this.udpMutex.RUnlock()
+			return
+		}
+		nBytes, err := this.udpHub.WriteTo(udpMessage.Value, packet.Destination())
+		this.udpMutex.RUnlock()
 		udpMessage.Release()
 		response.Data.Release()
 		if err != nil {
-			log.Error("Socks failed to write UDP message (%d bytes) to %s: %v", nBytes, clientAddr.String(), err)
+			log.Error("Socks: failed to write UDP message (", nBytes, " bytes) to ", packet.Destination(), ": ", err)
 		}
-	}
+	})
 }

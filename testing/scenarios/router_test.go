@@ -44,6 +44,7 @@ func TestRouter(t *testing.T) {
 		IP:   []byte{127, 0, 0, 1},
 		Port: int(50020),
 	})
+	assert.Error(err).IsNil()
 
 	payload := "direct dokodemo request."
 	nBytes, err := conn.Write([]byte(payload))
@@ -62,6 +63,7 @@ func TestRouter(t *testing.T) {
 		IP:   []byte{127, 0, 0, 1},
 		Port: int(50022),
 	})
+	assert.Error(err).IsNil()
 
 	payload = "blocked dokodemo request."
 	nBytes, err = conn.Write([]byte(payload))
@@ -76,4 +78,6 @@ func TestRouter(t *testing.T) {
 	assert.Int(nBytes).Equals(0)
 	assert.Bool(tcpServer2Accessed).IsFalse()
 	conn.Close()
+
+	CloseAllServers()
 }

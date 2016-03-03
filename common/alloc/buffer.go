@@ -1,20 +1,29 @@
 package alloc
 
 import (
-	"time"
+	"io"
+	"sync"
+)
+
+const (
+	defaultOffset = 16
 )
 
 // Buffer is a recyclable allocation of a byte array. Buffer.Release() recycles
 // the buffer into an internal buffer pool, in order to recreate a buffer more
 // quickly.
 type Buffer struct {
-	head  []byte
-	pool  *bufferPool
-	Value []byte
+	head   []byte
+	pool   *bufferPool
+	Value  []byte
+	offset int
 }
 
 // Release recycles the buffer into an internal buffer pool.
 func (b *Buffer) Release() {
+	if b == nil {
+		return
+	}
 	b.pool.free(b)
 	b.head = nil
 	b.Value = nil
@@ -24,7 +33,8 @@ func (b *Buffer) Release() {
 // Clear clears the content of the buffer, results an empty buffer with
 // Len() = 0.
 func (b *Buffer) Clear() *Buffer {
-	b.Value = b.head[:0]
+	b.offset = defaultOffset
+	b.Value = b.head[b.offset:b.offset]
 	return b
 }
 
@@ -40,6 +50,15 @@ func (b *Buffer) Append(data []byte) *Buffer {
 	return b
 }
 
+// Prepend prepends bytes in front of the buffer. Caller must ensure total bytes prepended is
+// no more than 16 bytes.
+func (b *Buffer) Prepend(data []byte) *Buffer {
+	b.SliceBack(len(data))
+	copy(b.Value, data)
+	return b
+}
+
+// Bytes returns the content bytes of this Buffer.
 func (b *Buffer) Bytes() []byte {
 	return b.Value
 }
@@ -56,9 +75,28 @@ func (b *Buffer) SliceFrom(from int) *Buffer {
 	return b
 }
 
+// SliceBack extends the Buffer to its front by offset bytes.
+// Caller must ensure cumulated offset is no more than 16.
+func (b *Buffer) SliceBack(offset int) *Buffer {
+	newoffset := b.offset - offset
+	if newoffset < 0 {
+		newoffset = 0
+	}
+	b.Value = b.head[newoffset : b.offset+len(b.Value)]
+	b.offset = newoffset
+	return b
+}
+
 // Len returns the length of the buffer content.
 func (b *Buffer) Len() int {
+	if b == nil {
+		return 0
+	}
 	return len(b.Value)
+}
+
+func (b *Buffer) IsEmpty() bool {
+	return b.Len() == 0
 }
 
 // IsFull returns true if the buffer has no more room to grow.
@@ -72,22 +110,43 @@ func (b *Buffer) Write(data []byte) (int, error) {
 	return len(data), nil
 }
 
-type bufferPool struct {
-	chain        chan []byte
-	bufferSize   int
-	buffers2Keep int
+// Read implements io.Reader.Read().
+func (b *Buffer) Read(data []byte) (int, error) {
+	if b.Len() == 0 {
+		return 0, io.EOF
+	}
+	nBytes := copy(data, b.Value)
+	if nBytes == b.Len() {
+		b.Value = b.Value[:0]
+	} else {
+		b.Value = b.Value[nBytes:]
+	}
+	return nBytes, nil
 }
 
-func newBufferPool(bufferSize, buffers2Keep, poolSize int) *bufferPool {
+func (b *Buffer) FillFrom(reader io.Reader) (int, error) {
+	begin := b.Len()
+	b.Value = b.Value[:cap(b.Value)]
+	nBytes, err := reader.Read(b.Value[begin:])
+	b.Value = b.Value[:begin+nBytes]
+	return nBytes, err
+}
+
+type bufferPool struct {
+	chain     chan []byte
+	allocator *sync.Pool
+}
+
+func newBufferPool(bufferSize, poolSize int) *bufferPool {
 	pool := &bufferPool{
-		chain:        make(chan []byte, poolSize),
-		bufferSize:   bufferSize,
-		buffers2Keep: buffers2Keep,
+		chain: make(chan []byte, poolSize),
+		allocator: &sync.Pool{
+			New: func() interface{} { return make([]byte, bufferSize) },
+		},
 	}
-	for i := 0; i < buffers2Keep; i++ {
+	for i := 0; i < poolSize/2; i++ {
 		pool.chain <- make([]byte, bufferSize)
 	}
-	go pool.cleanup(time.Tick(1 * time.Second))
 	return pool
 }
 
@@ -96,12 +155,13 @@ func (p *bufferPool) allocate() *Buffer {
 	select {
 	case b = <-p.chain:
 	default:
-		b = make([]byte, p.bufferSize)
+		b = p.allocator.Get().([]byte)
 	}
 	return &Buffer{
-		head:  b,
-		pool:  p,
-		Value: b,
+		head:   b,
+		pool:   p,
+		Value:  b[defaultOffset:],
+		offset: defaultOffset,
 	}
 }
 
@@ -109,28 +169,13 @@ func (p *bufferPool) free(buffer *Buffer) {
 	select {
 	case p.chain <- buffer.head:
 	default:
+		p.allocator.Put(buffer.head)
 	}
 }
 
-func (p *bufferPool) cleanup(tick <-chan time.Time) {
-	for range tick {
-		pSize := len(p.chain)
-		if pSize > p.buffers2Keep {
-			<-p.chain
-			continue
-		}
-		for delta := p.buffers2Keep - pSize; delta > 0; delta-- {
-			select {
-			case p.chain <- make([]byte, p.bufferSize):
-			default:
-			}
-		}
-	}
-}
-
-var smallPool = newBufferPool(1024, 64, 512)
-var mediumPool = newBufferPool(8*1024, 256, 2048)
-var largePool = newBufferPool(64*1024, 128, 1024)
+var smallPool = newBufferPool(1024, 64)
+var mediumPool = newBufferPool(8*1024, 128)
+var largePool = newBufferPool(64*1024, 64)
 
 // NewSmallBuffer creates a Buffer with 1K bytes of arbitrary content.
 func NewSmallBuffer() *Buffer {

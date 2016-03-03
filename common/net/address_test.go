@@ -41,6 +41,18 @@ func TestIPv6Address(t *testing.T) {
 	assert.String(addr).Equals("[102:304:102:304:102:304:102:304]")
 }
 
+func TestIPv4Asv6(t *testing.T) {
+	v2testing.Current(t)
+	ip := []byte{
+		byte(0), byte(0), byte(0), byte(0),
+		byte(0), byte(0), byte(0), byte(0),
+		byte(0), byte(0), byte(255), byte(255),
+		byte(1), byte(2), byte(3), byte(4),
+	}
+	addr := v2net.IPAddress(ip)
+	assert.String(addr).Equals("1.2.3.4")
+}
+
 func TestDomainAddress(t *testing.T) {
 	v2testing.Current(t)
 
@@ -61,4 +73,52 @@ func TestNetIPv4Address(t *testing.T) {
 	addr := v2net.IPAddress(ip)
 	v2netassert.Address(addr).IsIPv4()
 	assert.String(addr).Equals("1.2.3.4")
+}
+
+func TestIPv4AddressEquals(t *testing.T) {
+	v2testing.Current(t)
+
+	addr := v2net.IPAddress([]byte{1, 2, 3, 4})
+	assert.Bool(addr.Equals(nil)).IsFalse()
+
+	addr2 := v2net.IPAddress([]byte{1, 2, 3, 4})
+	assert.Bool(addr.Equals(addr2)).IsTrue()
+
+	addr3 := v2net.IPAddress([]byte{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 1, 2, 3, 4, 5, 6})
+	assert.Bool(addr.Equals(addr3)).IsFalse()
+
+	addr4 := v2net.IPAddress([]byte{1, 2, 3, 5})
+	assert.Bool(addr.Equals(addr4)).IsFalse()
+}
+
+func TestIPv6AddressEquals(t *testing.T) {
+	v2testing.Current(t)
+
+	addr := v2net.IPAddress([]byte{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 1, 2, 3, 4, 5, 6})
+	assert.Bool(addr.Equals(nil)).IsFalse()
+
+	addr2 := v2net.IPAddress([]byte{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 1, 2, 3, 4, 5, 6})
+	assert.Bool(addr.Equals(addr2)).IsTrue()
+
+	addr3 := v2net.IPAddress([]byte{1, 2, 3, 4})
+	assert.Bool(addr.Equals(addr3)).IsFalse()
+
+	addr4 := v2net.IPAddress([]byte{1, 3, 3, 4, 5, 6, 7, 8, 9, 10, 1, 2, 3, 4, 5, 6})
+	assert.Bool(addr.Equals(addr4)).IsFalse()
+}
+
+func TestDomainAddressEquals(t *testing.T) {
+	v2testing.Current(t)
+
+	addr := v2net.DomainAddress("v2ray.com")
+	assert.Bool(addr.Equals(nil)).IsFalse()
+
+	addr2 := v2net.DomainAddress("v2ray.com")
+	assert.Bool(addr.Equals(addr2)).IsTrue()
+
+	addr3 := v2net.DomainAddress("www.v2ray.com")
+	assert.Bool(addr.Equals(addr3)).IsFalse()
+
+	addr4 := v2net.IPAddress([]byte{1, 3, 3, 4, 5, 6, 7, 8, 9, 10, 1, 2, 3, 4, 5, 6})
+	assert.Bool(addr.Equals(addr4)).IsFalse()
 }

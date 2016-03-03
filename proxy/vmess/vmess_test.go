@@ -4,19 +4,18 @@ import (
 	"bytes"
 	"testing"
 
+	"github.com/v2ray/v2ray-core/app"
+	"github.com/v2ray/v2ray-core/app/dispatcher"
 	v2net "github.com/v2ray/v2ray-core/common/net"
 	v2nettesting "github.com/v2ray/v2ray-core/common/net/testing"
+	proto "github.com/v2ray/v2ray-core/common/protocol"
 	"github.com/v2ray/v2ray-core/common/uuid"
-	"github.com/v2ray/v2ray-core/proxy/common/connhandler"
+	"github.com/v2ray/v2ray-core/proxy"
+	proxytesting "github.com/v2ray/v2ray-core/proxy/testing"
 	proxymocks "github.com/v2ray/v2ray-core/proxy/testing/mocks"
-	vmess "github.com/v2ray/v2ray-core/proxy/vmess"
 	_ "github.com/v2ray/v2ray-core/proxy/vmess/inbound"
-	inboundjson "github.com/v2ray/v2ray-core/proxy/vmess/inbound/json"
-	vmessjson "github.com/v2ray/v2ray-core/proxy/vmess/json"
 	_ "github.com/v2ray/v2ray-core/proxy/vmess/outbound"
-	outboundjson "github.com/v2ray/v2ray-core/proxy/vmess/outbound/json"
 	"github.com/v2ray/v2ray-core/shell/point"
-	"github.com/v2ray/v2ray-core/shell/point/testing/mocks"
 	v2testing "github.com/v2ray/v2ray-core/testing"
 	"github.com/v2ray/v2ray-core/testing/assert"
 )
@@ -27,7 +26,7 @@ func TestVMessInAndOut(t *testing.T) {
 	id, err := uuid.ParseString("ad937d9d-6e23-4a5a-ba23-bce5092a7c51")
 	assert.Error(err).IsNil()
 
-	testAccount := vmess.NewID(id)
+	testAccount := proto.NewID(id)
 
 	portA := v2nettesting.PickPort()
 	portB := v2nettesting.PickPort()
@@ -39,30 +38,35 @@ func TestVMessInAndOut(t *testing.T) {
 		ConnOutput: ichConnOutput,
 	}
 
-	connhandler.RegisterInboundConnectionHandlerFactory("mock_ich", ich)
+	protocol, err := proxytesting.RegisterInboundConnectionHandlerCreator("mock_och", func(space app.Space, config interface{}) (proxy.InboundHandler, error) {
+		ich.PacketDispatcher = space.GetApp(dispatcher.APP_ID).(dispatcher.PacketDispatcher)
+		return ich, nil
+	})
+	assert.Error(err).IsNil()
 
-	configA := mocks.Config{
-		PortValue: portA,
-		InboundConfigValue: &mocks.ConnectionConfig{
-			ProtocolValue: "mock_ich",
-			SettingsValue: nil,
+	configA := &point.Config{
+		Port: portA,
+		InboundConfig: &point.ConnectionConfig{
+			Protocol: protocol,
+			Settings: nil,
 		},
-		OutboundConfigValue: &mocks.ConnectionConfig{
-			ProtocolValue: "vmess",
-			SettingsValue: &outboundjson.Outbound{
-				[]*outboundjson.ConfigTarget{
-					&outboundjson.ConfigTarget{
-						Destination: v2net.TCPDestination(v2net.IPAddress([]byte{127, 0, 0, 1}), portB),
-						Users: []*vmessjson.ConfigUser{
-							&vmessjson.ConfigUser{Id: testAccount},
-						},
-					},
-				},
-			},
+		OutboundConfig: &point.ConnectionConfig{
+			Protocol: "vmess",
+			Settings: []byte(`{
+        "vnext": [
+          {
+            "address": "127.0.0.1",
+            "port": ` + portB.String() + `,
+            "users": [
+              {"id": "` + testAccount.String() + `"}
+            ]
+          }
+        ]
+      }`),
 		},
 	}
 
-	pointA, err := point.NewPoint(&configA)
+	pointA, err := point.NewPoint(configA)
 	assert.Error(err).IsNil()
 
 	err = pointA.Start()
@@ -75,25 +79,28 @@ func TestVMessInAndOut(t *testing.T) {
 		ConnOutput: ochConnOutput,
 	}
 
-	connhandler.RegisterOutboundConnectionHandlerFactory("mock_och", och)
+	protocol, err = proxytesting.RegisterOutboundConnectionHandlerCreator("mock_och", func(space app.Space, config interface{}) (proxy.OutboundHandler, error) {
+		return och, nil
+	})
+	assert.Error(err).IsNil()
 
-	configB := mocks.Config{
-		PortValue: portB,
-		InboundConfigValue: &mocks.ConnectionConfig{
-			ProtocolValue: "vmess",
-			SettingsValue: &inboundjson.Inbound{
-				AllowedClients: []*vmessjson.ConfigUser{
-					&vmessjson.ConfigUser{Id: testAccount},
-				},
-			},
+	configB := &point.Config{
+		Port: portB,
+		InboundConfig: &point.ConnectionConfig{
+			Protocol: "vmess",
+			Settings: []byte(`{
+        "clients": [
+          {"id": "` + testAccount.String() + `"}
+        ]
+      }`),
 		},
-		OutboundConfigValue: &mocks.ConnectionConfig{
-			ProtocolValue: "mock_och",
-			SettingsValue: nil,
+		OutboundConfig: &point.ConnectionConfig{
+			Protocol: protocol,
+			Settings: nil,
 		},
 	}
 
-	pointB, err := point.NewPoint(&configB)
+	pointB, err := point.NewPoint(configB)
 	assert.Error(err).IsNil()
 
 	err = pointB.Start()

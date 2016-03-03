@@ -1,10 +1,11 @@
 package freedom
 
 import (
+	"io"
 	"net"
 	"sync"
 
-	"github.com/v2ray/v2ray-core/app"
+	v2io "github.com/v2ray/v2ray-core/common/io"
 	"github.com/v2ray/v2ray-core/common/log"
 	v2net "github.com/v2ray/v2ray-core/common/net"
 	"github.com/v2ray/v2ray-core/common/retry"
@@ -13,11 +14,10 @@ import (
 )
 
 type FreedomConnection struct {
-	space app.Space
 }
 
 func (this *FreedomConnection) Dispatch(firstPacket v2net.Packet, ray ray.OutboundRay) error {
-	log.Info("Freedom: Opening connection to %s", firstPacket.Destination().String())
+	log.Info("Freedom: Opening connection to ", firstPacket.Destination())
 
 	var conn net.Conn
 	err := retry.Timed(5, 100).On(func() error {
@@ -30,7 +30,7 @@ func (this *FreedomConnection) Dispatch(firstPacket v2net.Packet, ray ray.Outbou
 	})
 	if err != nil {
 		close(ray.OutboundOutput())
-		log.Error("Freedom: Failed to open connection: %s : %v", firstPacket.Destination().String(), err)
+		log.Error("Freedom: Failed to open connection to ", firstPacket.Destination(), ": ", err)
 		return err
 	}
 	defer conn.Close()
@@ -50,7 +50,7 @@ func (this *FreedomConnection) Dispatch(firstPacket v2net.Packet, ray ray.Outbou
 		writeMutex.Unlock()
 	} else {
 		go func() {
-			v2net.ChanToWriter(conn, input)
+			v2io.ChanToRawWriter(conn, input)
 			writeMutex.Unlock()
 		}()
 	}
@@ -59,35 +59,14 @@ func (this *FreedomConnection) Dispatch(firstPacket v2net.Packet, ray ray.Outbou
 		defer readMutex.Unlock()
 		defer close(output)
 
-		response, err := v2net.ReadFrom(conn, nil)
-		log.Info("Freedom receives %d bytes from %s", response.Len(), conn.RemoteAddr().String())
-		if response.Len() > 0 {
-			output <- response
-		} else {
-			response.Release()
-		}
-		if err != nil {
-			return
-		}
+		var reader io.Reader = conn
+
 		if firstPacket.Destination().IsUDP() {
-			return
+			reader = v2net.NewTimeOutReader(16 /* seconds */, conn)
 		}
 
-		v2net.ReaderToChan(output, conn)
+		v2io.RawReaderToChan(output, reader)
 	}()
-
-	if this.space.HasDnsCache() {
-		if firstPacket.Destination().Address().IsDomain() {
-			domain := firstPacket.Destination().Address().Domain()
-			addr := conn.RemoteAddr()
-			switch typedAddr := addr.(type) {
-			case *net.TCPAddr:
-				this.space.DnsCache().Add(domain, typedAddr.IP)
-			case *net.UDPAddr:
-				this.space.DnsCache().Add(domain, typedAddr.IP)
-			}
-		}
-	}
 
 	writeMutex.Lock()
 	if tcpConn, ok := conn.(*net.TCPConn); ok {

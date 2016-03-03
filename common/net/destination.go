@@ -2,11 +2,12 @@ package net
 
 // Destination represents a network destination including address and protocol (tcp / udp).
 type Destination interface {
-	Network() string  // Protocol of communication (tcp / udp)
+	Network() Network // Protocol of communication (tcp / udp)
 	Address() Address // Address of destination
 	Port() Port
 	String() string // String representation of the destination
 	NetAddr() string
+	Equals(Destination) bool
 
 	IsTCP() bool // True if destination is reachable via TCP
 	IsUDP() bool // True if destination is reachable via UDP
@@ -27,8 +28,8 @@ type tcpDestination struct {
 	port    Port
 }
 
-func (dest *tcpDestination) Network() string {
-	return "tcp"
+func (dest *tcpDestination) Network() Network {
+	return TCPNetwork
 }
 
 func (dest *tcpDestination) Address() Address {
@@ -55,13 +56,26 @@ func (dest *tcpDestination) Port() Port {
 	return dest.port
 }
 
+func (dest *tcpDestination) Equals(another Destination) bool {
+	if dest == nil && another == nil {
+		return true
+	}
+	if dest == nil || another == nil {
+		return false
+	}
+	if !another.IsTCP() {
+		return false
+	}
+	return dest.Port() == another.Port() && dest.Address().Equals(another.Address())
+}
+
 type udpDestination struct {
 	address Address
 	port    Port
 }
 
-func (dest *udpDestination) Network() string {
-	return "udp"
+func (dest *udpDestination) Network() Network {
+	return UDPNetwork
 }
 
 func (dest *udpDestination) Address() Address {
@@ -86,4 +100,17 @@ func (dest *udpDestination) IsUDP() bool {
 
 func (dest *udpDestination) Port() Port {
 	return dest.port
+}
+
+func (dest *udpDestination) Equals(another Destination) bool {
+	if dest == nil && another == nil {
+		return true
+	}
+	if dest == nil || another == nil {
+		return false
+	}
+	if !another.IsUDP() {
+		return false
+	}
+	return dest.Port() == another.Port() && dest.Address().Equals(another.Address())
 }

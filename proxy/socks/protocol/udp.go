@@ -2,7 +2,6 @@ package protocol
 
 import (
 	"errors"
-	"net"
 
 	"github.com/v2ray/v2ray-core/common/alloc"
 	"github.com/v2ray/v2ray-core/common/log"
@@ -41,7 +40,7 @@ func (request *Socks5UDPRequest) Write(buffer *alloc.Buffer) {
 
 func ReadUDPRequest(packet []byte) (*Socks5UDPRequest, error) {
 	if len(packet) < 5 {
-		return nil, transport.CorruptedPacket
+		return nil, transport.ErrorCorruptedPacket
 	}
 	request := new(Socks5UDPRequest)
 
@@ -54,7 +53,7 @@ func ReadUDPRequest(packet []byte) (*Socks5UDPRequest, error) {
 	switch addrType {
 	case AddrTypeIPv4:
 		if len(packet) < 10 {
-			return nil, transport.CorruptedPacket
+			return nil, transport.ErrorCorruptedPacket
 		}
 		ip := packet[4:8]
 		request.Port = v2net.PortFromBytes(packet[8:10])
@@ -62,7 +61,7 @@ func ReadUDPRequest(packet []byte) (*Socks5UDPRequest, error) {
 		dataBegin = 10
 	case AddrTypeIPv6:
 		if len(packet) < 22 {
-			return nil, transport.CorruptedPacket
+			return nil, transport.ErrorCorruptedPacket
 		}
 		ip := packet[4:20]
 		request.Port = v2net.PortFromBytes(packet[20:22])
@@ -71,19 +70,14 @@ func ReadUDPRequest(packet []byte) (*Socks5UDPRequest, error) {
 	case AddrTypeDomain:
 		domainLength := int(packet[4])
 		if len(packet) < 5+domainLength+2 {
-			return nil, transport.CorruptedPacket
+			return nil, transport.ErrorCorruptedPacket
 		}
 		domain := string(packet[5 : 5+domainLength])
 		request.Port = v2net.PortFromBytes(packet[5+domainLength : 5+domainLength+2])
-		maybeIP := net.ParseIP(domain)
-		if maybeIP != nil {
-			request.Address = v2net.IPAddress(maybeIP)
-		} else {
-			request.Address = v2net.DomainAddress(domain)
-		}
+		request.Address = v2net.ParseAddress(domain)
 		dataBegin = 5 + domainLength + 2
 	default:
-		log.Warning("Unknown address type %d", addrType)
+		log.Warning("Unknown address type ", addrType)
 		return nil, ErrorUnknownAddressType
 	}
 

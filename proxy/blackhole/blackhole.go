@@ -4,8 +4,10 @@ import (
 	"io/ioutil"
 
 	"github.com/v2ray/v2ray-core/app"
+	v2io "github.com/v2ray/v2ray-core/common/io"
 	v2net "github.com/v2ray/v2ray-core/common/net"
-	"github.com/v2ray/v2ray-core/proxy/common/connhandler"
+	"github.com/v2ray/v2ray-core/proxy"
+	"github.com/v2ray/v2ray-core/proxy/internal"
 	"github.com/v2ray/v2ray-core/transport/ray"
 )
 
@@ -24,18 +26,14 @@ func (this *BlackHole) Dispatch(firstPacket v2net.Packet, ray ray.OutboundRay) e
 
 	close(ray.OutboundOutput())
 	if firstPacket.MoreChunks() {
-		v2net.ChanToWriter(ioutil.Discard, ray.OutboundInput())
+		v2io.ChanToRawWriter(ioutil.Discard, ray.OutboundInput())
 	}
 	return nil
 }
 
-type BlackHoleFactory struct {
-}
-
-func (this BlackHoleFactory) Create(space app.Space, config interface{}) (connhandler.OutboundConnectionHandler, error) {
-	return NewBlackHole(), nil
-}
-
 func init() {
-	connhandler.RegisterOutboundConnectionHandlerFactory("blackhole", BlackHoleFactory{})
+	internal.MustRegisterOutboundHandlerCreator("blackhole",
+		func(space app.Space, config interface{}) (proxy.OutboundHandler, error) {
+			return NewBlackHole(), nil
+		})
 }

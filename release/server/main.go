@@ -7,34 +7,26 @@ import (
 	"path/filepath"
 
 	"github.com/v2ray/v2ray-core"
-	_ "github.com/v2ray/v2ray-core/app/router/json"
 	_ "github.com/v2ray/v2ray-core/app/router/rules"
-	_ "github.com/v2ray/v2ray-core/app/router/rules/json"
 	"github.com/v2ray/v2ray-core/common/log"
 	"github.com/v2ray/v2ray-core/shell/point"
-	pointjson "github.com/v2ray/v2ray-core/shell/point/json"
 
-	// The following are neccesary as they register handlers in their init functions.
+	// The following are necessary as they register handlers in their init functions.
 	_ "github.com/v2ray/v2ray-core/proxy/blackhole"
-	_ "github.com/v2ray/v2ray-core/proxy/blackhole/json"
 	_ "github.com/v2ray/v2ray-core/proxy/dokodemo"
-	_ "github.com/v2ray/v2ray-core/proxy/dokodemo/json"
 	_ "github.com/v2ray/v2ray-core/proxy/freedom"
-	_ "github.com/v2ray/v2ray-core/proxy/freedom/json"
 	_ "github.com/v2ray/v2ray-core/proxy/http"
-	_ "github.com/v2ray/v2ray-core/proxy/http/json"
+	_ "github.com/v2ray/v2ray-core/proxy/shadowsocks"
 	_ "github.com/v2ray/v2ray-core/proxy/socks"
-	_ "github.com/v2ray/v2ray-core/proxy/socks/json"
 	_ "github.com/v2ray/v2ray-core/proxy/vmess/inbound"
-	_ "github.com/v2ray/v2ray-core/proxy/vmess/inbound/json"
 	_ "github.com/v2ray/v2ray-core/proxy/vmess/outbound"
-	_ "github.com/v2ray/v2ray-core/proxy/vmess/outbound/json"
 )
 
 var (
 	configFile string
 	logLevel   = flag.String("loglevel", "warning", "Level of log info to be printed to console, available value: debug, info, warning, error")
 	version    = flag.Bool("version", false, "Show current version of V2Ray.")
+	test       = flag.Bool("test", false, "Test config file only, without launching V2Ray server.")
 )
 
 func init() {
@@ -73,25 +65,30 @@ func main() {
 		log.Error("Config file is not set.")
 		return
 	}
-	config, err := pointjson.LoadConfig(configFile)
+	config, err := point.LoadConfig(configFile)
 	if err != nil {
-		log.Error("Failed to read config file (%s): %v", configFile, err)
+		log.Error("Failed to read config file (", configFile, "): ", configFile, err)
 		return
 	}
 
-	if config.LogConfig() != nil && len(config.LogConfig().AccessLog()) > 0 {
-		log.InitAccessLogger(config.LogConfig().AccessLog())
+	if config.LogConfig != nil && len(config.LogConfig.AccessLog) > 0 {
+		log.InitAccessLogger(config.LogConfig.AccessLog)
 	}
 
 	vPoint, err := point.NewPoint(config)
 	if err != nil {
-		log.Error("Failed to create Point server: %v", err)
+		log.Error("Failed to create Point server: ", err)
+		return
+	}
+
+	if *test {
+		fmt.Println("Configuration OK.")
 		return
 	}
 
 	err = vPoint.Start()
 	if err != nil {
-		log.Error("Error starting Point server: %v", err)
+		log.Error("Error starting Point server: ", err)
 		return
 	}
 

@@ -4,30 +4,23 @@ import (
 	"os"
 	"path/filepath"
 
-	_ "github.com/v2ray/v2ray-core/app/router/json"
 	_ "github.com/v2ray/v2ray-core/app/router/rules"
-	_ "github.com/v2ray/v2ray-core/app/router/rules/json"
 	"github.com/v2ray/v2ray-core/common/log"
 	"github.com/v2ray/v2ray-core/shell/point"
-	pointjson "github.com/v2ray/v2ray-core/shell/point/json"
 
-	// The following are neccesary as they register handlers in their init functions.
+	// The following are necessary as they register handlers in their init functions.
 	_ "github.com/v2ray/v2ray-core/proxy/blackhole"
-	_ "github.com/v2ray/v2ray-core/proxy/blackhole/json"
 	_ "github.com/v2ray/v2ray-core/proxy/dokodemo"
-	_ "github.com/v2ray/v2ray-core/proxy/dokodemo/json"
 	_ "github.com/v2ray/v2ray-core/proxy/freedom"
-	_ "github.com/v2ray/v2ray-core/proxy/freedom/json"
+	_ "github.com/v2ray/v2ray-core/proxy/http"
+	_ "github.com/v2ray/v2ray-core/proxy/shadowsocks"
 	_ "github.com/v2ray/v2ray-core/proxy/socks"
-	_ "github.com/v2ray/v2ray-core/proxy/socks/json"
 	_ "github.com/v2ray/v2ray-core/proxy/vmess/inbound"
-	_ "github.com/v2ray/v2ray-core/proxy/vmess/inbound/json"
 	_ "github.com/v2ray/v2ray-core/proxy/vmess/outbound"
-	_ "github.com/v2ray/v2ray-core/proxy/vmess/outbound/json"
 )
 
 var (
-	serverup = make(map[string]bool)
+	runningServers = make([]*point.Point, 0, 10)
 )
 
 func TestFile(filename string) string {
@@ -35,39 +28,49 @@ func TestFile(filename string) string {
 }
 
 func InitializeServerSetOnce(testcase string) error {
-	if up, found := serverup[testcase]; found && up {
-		return nil
-	}
-	err := InitializeServer(TestFile(testcase + "_server.json"))
-	if err != nil {
+	if err := InitializeServerServer(testcase); err != nil {
 		return err
 	}
-	err = InitializeServer(TestFile(testcase + "_client.json"))
-	if err != nil {
+	if err := InitializeServerClient(testcase); err != nil {
 		return err
 	}
-	serverup[testcase] = true
 	return nil
 }
 
+func InitializeServerServer(testcase string) error {
+	return InitializeServer(TestFile(testcase + "_server.json"))
+}
+
+func InitializeServerClient(testcase string) error {
+	return InitializeServer(TestFile(testcase + "_client.json"))
+}
+
 func InitializeServer(configFile string) error {
-	config, err := pointjson.LoadConfig(configFile)
+	config, err := point.LoadConfig(configFile)
 	if err != nil {
-		log.Error("Failed to read config file (%s): %v", configFile, err)
+		log.Error("Failed to read config file (", configFile, "): ", configFile, err)
 		return err
 	}
 
 	vPoint, err := point.NewPoint(config)
 	if err != nil {
-		log.Error("Failed to create Point server: %v", err)
+		log.Error("Failed to create Point server: ", err)
 		return err
 	}
 
 	err = vPoint.Start()
 	if err != nil {
-		log.Error("Error starting Point server: %v", err)
+		log.Error("Error starting Point server: ", err)
 		return err
 	}
+	runningServers = append(runningServers, vPoint)
 
 	return nil
+}
+
+func CloseAllServers() {
+	for _, server := range runningServers {
+		server.Close()
+	}
+	runningServers = make([]*point.Point, 0, 10)
 }
