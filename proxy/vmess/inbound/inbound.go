@@ -118,8 +118,11 @@ func (this *VMessInboundHandler) HandleConnection(connection *hub.TCPConn) {
 	defer connection.Close()
 
 	connReader := v2net.NewTimeOutReader(16, connection)
+	defer connReader.Release()
 
 	reader := v2io.NewBufferedReader(connReader)
+	defer reader.Release()
+
 	session := raw.NewServerSession(this.clients)
 
 	request, err := session.DecodeRequestHeader(reader)
@@ -145,16 +148,18 @@ func (this *VMessInboundHandler) HandleConnection(connection *hub.TCPConn) {
 		defer close(input)
 		defer readFinish.Unlock()
 		bodyReader := session.DecodeRequestBody(reader)
-		var requestReader v2io.Reader
+		var requestReader v2io.ReleasableReader
 		if request.Option.IsChunkStream() {
 			requestReader = vmessio.NewAuthChunkReader(bodyReader)
 		} else {
 			requestReader = v2io.NewAdaptiveReader(bodyReader)
 		}
 		v2io.ReaderToChan(input, requestReader)
+		requestReader.Release()
 	}()
 
 	writer := v2io.NewBufferedWriter(connection)
+	defer writer.Release()
 
 	response := &proto.ResponseHeader{
 		Command: this.generateCommand(request),
@@ -174,11 +179,12 @@ func (this *VMessInboundHandler) HandleConnection(connection *hub.TCPConn) {
 
 		writer.SetCached(false)
 		go func(finish *sync.Mutex) {
-			var writer v2io.Writer = v2io.NewAdaptiveWriter(bodyWriter)
+			var writer v2io.ReleasableWriter = v2io.NewAdaptiveWriter(bodyWriter)
 			if request.Option.IsChunkStream() {
 				writer = vmessio.NewAuthChunkWriter(writer)
 			}
 			v2io.ChanToWriter(writer, output)
+            writer.Release()
 			finish.Unlock()
 		}(&writeFinish)
 		writeFinish.Lock()

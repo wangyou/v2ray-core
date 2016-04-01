@@ -1,6 +1,7 @@
 package hub
 
 import (
+	"errors"
 	"net"
 	"time"
 
@@ -8,30 +9,45 @@ import (
 	v2net "github.com/v2ray/v2ray-core/common/net"
 )
 
+var (
+	ErrorClosedConnection = errors.New("Connection already closed.")
+)
+
 type TCPConn struct {
 	conn     *net.TCPConn
 	listener *TCPHub
-	dirty    bool
 }
 
 func (this *TCPConn) Read(b []byte) (int, error) {
+	if this == nil || this.conn == nil {
+		return 0, ErrorClosedConnection
+	}
 	return this.conn.Read(b)
 }
 
 func (this *TCPConn) Write(b []byte) (int, error) {
+	if this == nil || this.conn == nil {
+		return 0, ErrorClosedConnection
+	}
 	return this.conn.Write(b)
 }
 
 func (this *TCPConn) Close() error {
-	return this.conn.Close()
+	if this == nil || this.conn == nil {
+		return ErrorClosedConnection
+	}
+	err := this.conn.Close()
+	return err
 }
 
 func (this *TCPConn) Release() {
-	if this.dirty {
-		this.Close()
+	if this == nil || this.listener == nil {
 		return
 	}
-	this.listener.recycle(this.conn)
+
+	this.Close()
+	this.conn = nil
+	this.listener = nil
 }
 
 func (this *TCPConn) LocalAddr() net.Addr {
@@ -55,10 +71,16 @@ func (this *TCPConn) SetWriteDeadline(t time.Time) error {
 }
 
 func (this *TCPConn) CloseRead() error {
+	if this == nil || this.conn == nil {
+		return nil
+	}
 	return this.conn.CloseRead()
 }
 
 func (this *TCPConn) CloseWrite() error {
+	if this == nil || this.conn == nil {
+		return nil
+	}
 	return this.conn.CloseWrite()
 }
 
@@ -88,6 +110,7 @@ func ListenTCP(port v2net.Port, callback func(*TCPConn)) (*TCPHub, error) {
 func (this *TCPHub) Close() {
 	this.accepting = false
 	this.listener.Close()
+	this.listener = nil
 }
 
 func (this *TCPHub) start() {
